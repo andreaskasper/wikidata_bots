@@ -14,6 +14,10 @@ class wikidata {
 	
 	private static $node_names = array();
 	private static $is_loggedin = false;
+	private static $bot_RequestsPerMinute = 20;
+	private static $bot_maxlag = 5;
+	private static $log_request_time = array();
+	public static $callback_sleep = null;
 
 	/**
 	 *  @param int $ttl default: 10 Tage
@@ -38,7 +42,7 @@ class wikidata {
 	}
 	
 	public static function nodelive ($id) {
-		$str = file_get_contents("http://www.wikidata.org/w/api.php?action=wbgetentities&format=json&ids=Q".$id);
+		$str = file_get_contents("http://www.wikidata.org/w/api.php?action=wbgetentities&format=json&maxlag=".self::$bot_maxlag."&ids=Q".$id);
 		//echo($str);
 		$json = json_decode($str,true);
 		$out = $json["entities"]["Q".$id];
@@ -87,12 +91,12 @@ class wikidata {
 	public static function query($str, $ttl = 86400) {
 		$url = "http://wdq.wmflabs.org/api?q=".urlencode($str);
 		//echo($url);
-		return @json_decode(file_get_contents($url), true);
+		//return @json_decode(file_get_contents($url), true);
 		return @json_decode(WebCache::get($url, $ttl, "}"),true);
 	}
 	
 	public static function search($query, $ttl = 86400) {
-		return json_decode(file_get_contents("http://www.wikidata.org/w/api.php?action=wbsearchentities&search=".urlencode($query)."&format=json&language=de&type=item&continue=0"), true);
+		return json_decode(file_get_contents("http://www.wikidata.org/w/api.php?action=wbsearchentities&search=".urlencode($query)."&format=json&language=de&type=item&continue=0&maxlag=".self::$bot_maxlag), true);
 		$resp = WebCache::getObject("http://www.wikidata.org/w/api.php?action=wbsearchentities&search=".urlencode($query)."&format=json&language=de&type=item&continue=0",$ttl);
 		$data = json_decode($resp["data"], true);
 		$data["from_cache"] = $resp["from_cache"];
@@ -111,12 +115,12 @@ class wikidata {
 		
 		
 		
-		$w2["bot"] = 0;
+		$w2["bot"] = 1;
 		$w2["token"] = self::getEditToken();
 		$w2["data"] =  json_encode($w);
 		
 		//print_r($w2);
-		$data = self::httpRequestJSON("https://www.wikidata.org/w/api.php?action=wbeditentity&new=item&&format=json", $w2);
+		$data = self::httpRequestJSON("https://www.wikidata.org/w/api.php?action=wbeditentity&new=item&maxlag=".self::$bot_maxlag."&format=json", $w2);
 		
 		/*
 		
@@ -139,9 +143,9 @@ class wikidata {
 'property' => 'P'.$property.'',
 'snaktype' => 'value',
 'value' => $jsonORarray,
-'bot' => 0,
+'bot' => 1,
 "token" => self::getEditToken());
-		$data = self::httpRequestJSON("https://www.wikidata.org/w/api.php?action=wbcreateclaim&format=json", $w);
+		$data = self::httpRequestJSON("https://www.wikidata.org/w/api.php?action=wbcreateclaim&format=json&maxlag=".self::$bot_maxlag, $w);
 		return $data;
 	}
 	
@@ -156,27 +160,15 @@ class wikidata {
 'property' => 'P'.$property.'',
 'snaktype' => 'value',
 'value' => $jsonORarray,
-'bot' => 0,
+'bot' => 1,
 "token" => self::getEditToken());
-		$data = self::httpRequestJSON("https://www.wikidata.org/w/api.php?action=wbsetqualifier&format=json", $w);
+		$data = self::httpRequestJSON("https://www.wikidata.org/w/api.php?action=wbsetqualifier&format=json&maxlag=".self::$bot_maxlag, $w);
 		return $data;
 	}
 	
 	public static function insertpropertylink($node, $property , $linkid) {
-		if (substr($node,0,1) == "Q") $node = substr($node,1,999); 
-		if (substr($property,0,1) == "P") $property = substr($property,1,999); 
 		if (substr($linkid,0,1) == "Q") $linkid = substr($linkid,1,999); 
-		self::login();
-		
-		$w = array("action" => 'wbcreateclaim',
-'entity' => 'Q'.$node.'',
-'property' => 'P'.$property.'',
-'snaktype' => 'value',
-'value' => '{"entity-type":"item","numeric-id":'.$linkid.'}',
-'bot' => 0,
-"token" => self::getEditToken());
-		$data = self::httpRequestJSON("https://www.wikidata.org/w/api.php?action=wbcreateclaim&format=json", $w);
-		return $data;
+		return self::insertproperty($node, $property, '{"entity-type":"item","numeric-id":'.$linkid.'}');
 	}
 	
 	public static function insertpropertyvalue($node, $property , $value, $header = array()) {
@@ -189,9 +181,9 @@ class wikidata {
 'property' => 'P'.$property.'',
 'snaktype' => 'value',
 'value' => $value,
-'bot' => (isset($header["bot"])?$header["bot"]:0),
+'bot' => 1,
 "token" => self::getEditToken());
-		$data = self::httpRequestJSON("https://www.wikidata.org/w/api.php?action=wbcreateclaim&format=json", $w);
+		$data = self::httpRequestJSON("https://www.wikidata.org/w/api.php?action=wbcreateclaim&format=json&maxlag=".self::$bot_maxlag, $w);
 		return $data;
 	}
 	
@@ -210,10 +202,10 @@ class wikidata {
 "format" => "json",
 "statement" => $propertyID,
 "snaks" => json_encode($w2),
-'bot' => (isset($header["bot"])?$header["bot"]:0),
+'bot' => 1,
 "token" => self::getEditToken());
 	//print_r($w);
-		$data = self::httpRequestJSON("https://www.wikidata.org/w/api.php?action=wbcreateclaim&format=json", $w);
+		$data = self::httpRequestJSON("https://www.wikidata.org/w/api.php?action=wbcreateclaim&format=json&maxlag=".self::$bot_maxlag, $w);
 		return $data;
 	}
 	
@@ -337,21 +329,29 @@ class wikidata {
             $params["lgtoken"] = $token;
         }
 
-        $data = self::httpRequestJSON("https://www.wikidata.org/w/api.php?action=login&format=json", $params);
+        $data = self::httpRequestJSON("https://www.wikidata.org/w/api.php?action=login&format=json&maxlag=".self::$bot_maxlag, $params);
 		$token = $data["login"]["token"];
 		$params["lgtoken"] = $token;
 		//print_r($params); exit(1);
-		$data = self::httpRequestJSON("https://www.wikidata.org/w/api.php?action=login&format=json", $params);
+		$data = self::httpRequestJSON("https://www.wikidata.org/w/api.php?action=login&format=json&maxlag=".self::$bot_maxlag, $params);
 		self::$is_loggedin = true;
 	}
 	
 	private static function getEditToken() {
-		$data = self::httpRequestJSON("https://www.wikidata.org/w/api.php?action=query&meta=tokens&type=csrf&format=json");
+		$data = self::httpRequestJSON("https://www.wikidata.org/w/api.php?action=query&meta=tokens&type=csrf&format=json&maxlag=".self::$bot_maxlag);
 		return $data["query"]["tokens"]["csrftoken"];
 	}
 	
 	private static function httpRequest($url, $post="") {
         global $settings;
+		
+		if (count(self::$log_request_time) >= self::$bot_RequestsPerMinute) {
+			$a = array_shift(self::$log_request_time);
+			if (time()-60 < $a) { //wir müssen warten, sonst ist wikidata böse
+				trigger_error("Wartezeit: ".($a-(time()-60))."sec" ,E_USER_NOTICE);
+				if (self::$callback_sleep != null) call_user_func(self::$callback_sleep, $a-(time()-60)); else sleep($a-(time()-60));
+			}
+		}
 
         $ch = curl_init();
         //Change the user agent below suitably
@@ -359,8 +359,9 @@ class wikidata {
         curl_setopt($ch, CURLOPT_URL, ($url));
         curl_setopt( $ch, CURLOPT_ENCODING, "UTF-8" );
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt ($ch, CURLOPT_COOKIEFILE, "/tmp/wikidata_cookies.tmp");
-        curl_setopt ($ch, CURLOPT_COOKIEJAR, "/tmp/wikidata_cookies.tmp");
+		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); //SSL Prüfung ausschalten...
+        curl_setopt ($ch, CURLOPT_COOKIEFILE, __DIR__."/wikidata_cookies.tmp");
+        curl_setopt ($ch, CURLOPT_COOKIEJAR, __DIR__."/wikidata_cookies.tmp");
         if (!empty($post)) curl_setopt($ch,CURLOPT_POSTFIELDS,http_build_query($post));
         //UNCOMMENT TO DEBUG TO output.tmp
         //curl_setopt($ch, CURLOPT_VERBOSE, true); // Display communication with server
@@ -388,5 +389,15 @@ class wikidata {
 		$db->cmd(0, 'DELETE FROM wikidata_nodes WHERE id = "{0}" LIMIT 1', true, array($id));
 	}
 
+	/**
+	  * Gibt die letzten geänderten Nodes aus.
+	  */
+	public static function LastChangedNodes() {
+		$str = file_get_contents("https://www.wikidata.org/w/index.php?title=Special:RecentChanges&limit=100");
+		preg_match_all("@Q([0-9]+)@", $str, $m);
+		$out = array();
+		foreach ($m[0] as $a) if (!in_array($a, $out)) $out[] = $a;
+		return $out;
+	}	
 
 }
