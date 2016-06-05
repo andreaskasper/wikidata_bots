@@ -12,8 +12,10 @@ $personen = wikidata::query('CLAIM[21] AND (CLAIM[22] OR CLAIM[25] OR CLAIM[40])
 $i = 0;
 foreach ($personen["items"] as $person_id) {
 	$i++;
+	
 	$node = wikidata::nodelive($person_id);
-	echo("pruefe Q".$person_id.' '.wikidata::name($node["labels"]).' '.$i.'/'.count($personen["items"]).PHP_EOL);
+	echo("pruefe Q".$person_id.' '.wikidata::name($node["labels"]).' '.number_format(100*$i/count($personen["items"]),2,",",".")."%".PHP_EOL);
+	if (!checkP31($node)) continue;
 	
 	switch ($node["claims"]["P21"][0]["mainsnak"]["datavalue"]["value"]["numeric-id"]) {
 		case 6581097:
@@ -21,8 +23,10 @@ foreach ($personen["items"] as $person_id) {
 		case 6581072:
 			$geschlecht = "w"; break;
 		default:
-			addToDOWikiLine("# {{Q|".$person_id."}} hat ein ungewöhnliches {{P|21}}");
+			addToDOWikiLine("# {{Q|".$person_id.'}} hat mit "{{Q|'.$node["claims"]["P21"][0]["mainsnak"]["datavalue"]["value"]["numeric-id"].'}}" ein ungewöhnliches {{P|21}}');
 	}
+	
+	if ($i < 25000) continue;
 	
 	//Vater
 	if (isset($node["claims"]["P22"][0]["mainsnak"]["datavalue"]["value"]["numeric-id"]) AND !isset($node["claims"]["P22"][0]["qualifiers"])) {
@@ -40,6 +44,7 @@ foreach ($personen["items"] as $person_id) {
 	if (isset($node["claims"]["P40"][0]))
 	foreach ($node["claims"]["P40"] as $row) {
 		if (isset($row["qualifiers"])) continue;
+		if (!isset($row["mainsnak"]["datavalue"]["value"]["numeric-id"])) continue;
 		if ($geschlecht == "m") setVater($row["mainsnak"]["datavalue"]["value"]["numeric-id"], $person_id);
 		if ($geschlecht == "w") setMutter($row["mainsnak"]["datavalue"]["value"]["numeric-id"], $person_id);
 	}
@@ -50,6 +55,7 @@ exit(1);
 
 
 function setSohn($wid1, $wid2) {
+	if (!checkP31(wikidata::nodelive($wid1))) return false;
 	if (!is_child($wid1, $wid2)) {
 		echo("Sohn: ".$wid1." ".$wid2.PHP_EOL);
 		$d1 = wikidata::insertpropertylink($wid1, 40, $wid2);
@@ -60,6 +66,7 @@ function setSohn($wid1, $wid2) {
 }
 
 function setTochter($wid1, $wid2) {
+	if (!checkP31(wikidata::nodelive($wid1))) return false;
 	if (!is_child($wid1, $wid2)) {
 		echo("Tochter: ".$wid1." ".$wid2.PHP_EOL);
 		$d1 = wikidata::insertpropertylink($wid1, 40, $wid2);
@@ -71,6 +78,7 @@ function setTochter($wid1, $wid2) {
 
 function setVater($wid1, $wid2) {
 	$node = wikidata::nodelive($wid1);
+	if (!checkP31($node)) return false;
 	if (!isset($node["claims"]["P22"][0])) {
 		echo("Vater: ".$wid1." ".$wid2.PHP_EOL);
 		$d1 = wikidata::insertpropertylink($wid1, 22, $wid2);
@@ -82,6 +90,7 @@ function setVater($wid1, $wid2) {
 
 function setMutter($wid1, $wid2) {
 	$node = wikidata::nodelive($wid1);
+	if (!checkP31($node)) return false;
 	if (!isset($node["claims"]["P25"][0])) {
 		echo("Mutter: ".$wid1." ".$wid2.PHP_EOL);
 		$d1 = wikidata::insertpropertylink($wid1, 25, $wid2);
@@ -96,6 +105,8 @@ function setCrossReferenz($wid1, $wid2) {
 	return null; 
 	$node1 = wikidata::nodelive($wid1);
 	$node2 = wikidata::nodelive($wid2);
+	if (!checkP31($node1)) return false;
+	if (!checkP31($node2)) return false;
 	$root = findNodeLink($node2, $wid1);
 	if (!isset($root["references"])) return;
 	echo("prüfe Kreuzreferent zwischen Q".$wid1." und Q".$wid2.PHP_EOL);
@@ -118,6 +129,31 @@ function is_child($wid1, $wid2) {
 		if ($row["mainsnak"]["datavalue"]["value"]["numeric-id"] == $wid2) return true;
 	}
 	return false;
+}
+
+function checkP31($node) {
+	$out = false;
+	foreach ($node["claims"]["P31"] as $row) {
+		$p = $row["mainsnak"]["datavalue"]["value"]["numeric-id"];
+		switch ($p) {
+			case 5: //Mensch
+			case 15632617: //fiktiver Mensch
+			case 4271324: //Sagenfigur
+			case 20643955: //Menschliche Bibelfigur
+			case 178885: //Gottheit
+			case 95074: //fiktive Figur
+			case 3247351: //fiktive Ente
+			case 22989102: //griechische Gottheit
+			case 17624054: //fiktive Gottheit
+			case 22988604: //person der griechischen Mythologie
+				$out = true; break;
+			default:
+				//die("Neue Q".$p." ".wikidata::nodename($p));
+		}
+	}
+	
+	if (!$out) addToDOWikiLine("# ungewöhnliches {{P|31}} in {{Q|".$node["id"]."}} um mit Relation-Pairs zu arbeiten.");
+	return $out;
 }
 
 

@@ -276,7 +276,7 @@ class wikidata {
 	public static function nodename($id, $ttl = 8640000) {
 		if (substr($id,0,1) == "Q") $id = substr($id,1,9999);
 		if (isset(self::$node_names[$id])) return self::$node_names[$id];
-		$a = self::node($id, $ttl);
+		$a = self::nodelive($id);
 		//print_r($a);
 		$b = self::name($a["labels"]);
 		self::$node_names[$id] = $b;
