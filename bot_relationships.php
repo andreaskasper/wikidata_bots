@@ -19,6 +19,7 @@ foreach ($personen["items"] as $person_id) {
 	
 	switch ($node["claims"]["P21"][0]["mainsnak"]["datavalue"]["value"]["numeric-id"]) {
 		case 6581097:
+		case 44148: //männliches Geschlecht (Tier)
 			$geschlecht = "m"; break;
 		case 6581072:
 			$geschlecht = "w"; break;
@@ -146,16 +147,61 @@ function checkP31($node) {
 			case 22989102: //griechische Gottheit
 			case 17624054: //fiktive Gottheit
 			case 22988604: //person der griechischen Mythologie
+			case 10855242: //Rennpferd
+			case 15966903: //legendäre Figur
 				$out = true; break;
 			default:
 				//die("Neue Q".$p." ".wikidata::nodename($p));
 		}
 	}
 	
+	if (!$out) {
+		foreach ($node["claims"]["P31"] as $row) {
+			$p = $row["mainsnak"]["datavalue"]["value"]["numeric-id"];
+				if (subcheckP31(wikidata::nodelive($p))) { $out = true; break; }
+			}
+		
+	}
+	
 	if (!$out) addToDOWikiLine("# ungewöhnliches {{P|31}} in {{Q|".$node["id"]."}} um mit Relation-Pairs zu arbeiten.");
 	return $out;
 }
 
+function subcheckP31($node) {
+	echo("Subcheck P31 fuer ".$node["id"].PHP_EOL);
+	$out = false;
+	if (!isset($node["claims"]["P279"][0])) return $out;
+	foreach ($node["claims"]["P279"] as $row) {
+		$p = $row["mainsnak"]["datavalue"]["value"]["numeric-id"];
+		switch ($p) {
+			case 5: //Mensch
+			case 15632617: //fiktiver Mensch
+			case 4271324: //Sagenfigur
+			case 20643955: //Menschliche Bibelfigur
+			case 178885: //Gottheit
+			case 95074: //fiktive Figur
+			case 3247351: //fiktive Ente
+			case 22989102: //griechische Gottheit
+			case 17624054: //fiktive Gottheit
+			case 22988604: //person der griechischen Mythologie
+			case 10855242: //Rennpferd
+			case 15966903: //legendäre Figur
+			case 3658341: //literarische Figur
+				$out = true; break;
+			default:
+				//die("Neue Q".$p." ".wikidata::nodename($p));
+		}
+	}
+	
+	if (!$out) {
+		foreach ($node["claims"]["P279"] as $row) {
+			$p = $row["mainsnak"]["datavalue"]["value"]["numeric-id"];
+			if (subcheckP31(wikidata::nodelive($p))) { $out = true; break;}
+		}
+	}
+
+	return $out;
+}
 
 
 function CLIPause($sec = 60) {
