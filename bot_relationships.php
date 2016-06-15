@@ -134,6 +134,10 @@ function is_child($wid1, $wid2) {
 
 function checkP31($node) {
 	$out = false;
+	if (!isset($node["claims"]["P31"])) {
+		addToDOWikiLine("# {{Q|".substr($node["id"],1,99).'}} hat kein {{P|31}}');
+		return false;
+	}
 	foreach ($node["claims"]["P31"] as $row) {
 		$p = $row["mainsnak"]["datavalue"]["value"]["numeric-id"];
 		switch ($p) {
@@ -149,6 +153,7 @@ function checkP31($node) {
 			case 22988604: //person der griechischen Mythologie
 			case 10855242: //Rennpferd
 			case 15966903: //legendäre Figur
+			case 21070568: //möglicherweise fiktiver Mensch
 				$out = true; break;
 			default:
 				//die("Neue Q".$p." ".wikidata::nodename($p));
@@ -167,12 +172,17 @@ function checkP31($node) {
 	return $out;
 }
 
-function subcheckP31($node) {
-	echo("Subcheck P31 fuer ".$node["id"].PHP_EOL);
+function subcheckP31($node, $Qpath = array()) {
+	echo("Subcheck P31 fuer ".$node["id"]." ".count($Qpath).PHP_EOL);
 	$out = false;
 	if (!isset($node["claims"]["P279"][0])) return $out;
 	foreach ($node["claims"]["P279"] as $row) {
+		if (!isset($row["mainsnak"]["datavalue"]["value"]["numeric-id"])) continue;
 		$p = $row["mainsnak"]["datavalue"]["value"]["numeric-id"];
+		if (in_array($p, $Qpath)) {
+			addToDOWikiLine("# Zirkelbezug in Properties {{P|".$p."}} ".implode(",", $Qpath));
+			return $out;
+		}
 		switch ($p) {
 			case 5: //Mensch
 			case 15632617: //fiktiver Mensch
@@ -187,6 +197,7 @@ function subcheckP31($node) {
 			case 10855242: //Rennpferd
 			case 15966903: //legendäre Figur
 			case 3658341: //literarische Figur
+			case 21070568: //möglicherweise fiktiver Mensch
 				$out = true; break;
 			default:
 				//die("Neue Q".$p." ".wikidata::nodename($p));
@@ -195,8 +206,11 @@ function subcheckP31($node) {
 	
 	if (!$out) {
 		foreach ($node["claims"]["P279"] as $row) {
+			if (!isset($row["mainsnak"]["datavalue"]["value"]["numeric-id"])) continue;
 			$p = $row["mainsnak"]["datavalue"]["value"]["numeric-id"];
-			if (subcheckP31(wikidata::nodelive($p))) { $out = true; break;}
+			$arr = $Qpath;
+			$arr[] = $p;
+			if (subcheckP31(wikidata::nodelive($p), $arr)) { $out = true; break;}
 		}
 	}
 
