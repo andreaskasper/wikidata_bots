@@ -375,6 +375,11 @@ class wikidata {
 	
 	public static function getEditToken() {
 		$data = self::httpRequestJSON("https://www.wikidata.org/w/api.php?action=query&meta=tokens&type=csrf&format=json&maxlag=".self::$bot_maxlag);
+		if (!isset($data["query"]["tokens"]["csrftoken"])) {
+			trigger_error("Edit-Token konnte nicht geladen werden. 5sec Reload", E_USER_WARNING);
+			sleep(5);
+			return self::getEditToken();
+		}
 		return $data["query"]["tokens"]["csrftoken"];
 	}
 	

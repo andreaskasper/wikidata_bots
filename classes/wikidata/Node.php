@@ -1,13 +1,17 @@
 <?php
 
-class wikidataNode {
+namespace wikidata;
+
+class Node {
 	
 	private $_data = null;
 	private $_id = null;
 	private $_live = false;
 
-	public function __construct($nodeID = null) {
-		if ($nodeID != null AND !preg_match("@^Q[0-9]+$@", $nodeID)) trigger_error("Ungültige Node-ID", E_USER_ERROR);
+	public function __construct($nodeID = null, $editable = false) {
+		if ($editable == true) $this->_live = $editable;
+		if (is_numeric($nodeID)) $nodeID = "Q".$nodeID;
+		elseif ($nodeID != null AND !preg_match("@^Q[0-9]+$@", $nodeID)) trigger_error("Ungültige Node-ID", E_USER_ERROR);
 		if ($nodeID != null) $this->_id = $nodeID;
 	}
 	
@@ -18,7 +22,7 @@ class wikidataNode {
 	
 	public function name($lang = null) {
 		$this->_loadnode();
-		return wikidata::name($this->_data["labels"]);
+		return \wikidata::name($this->_data["labels"]);
 	}
 	
 	public function id() {
@@ -47,7 +51,7 @@ class wikidataNode {
 		else throw new Exception("Ungültiges Property-ID-Format");
 		$out = array();
 		foreach ($this->_data["claims"]["P".$propertyID] as $row) {
-			$out[] = new wikidataClaim($row, $this);
+			$out[] = new Claim(array("data" => $row, "parentnode" => $this));
 		}
 		return $out;
 	}
@@ -71,9 +75,9 @@ class wikidataNode {
 	public function insertclaim($propertyID, $jsonORarray, $comment = null) {
 		$this->livedata(true);
 		$this->_loadnode();
-		$a = wikidata::insertproperty($this->id(), $propertyID, $jsonORarray, $comment);
+		$a = \wikidata::insertproperty($this->id(), $propertyID, $jsonORarray, $comment);
 		if (isset($a["error"])) { print_r($jsonORarray); print_r($a); throw new Exception("Fehler beim eintragen"); }
-		if ($a["success"] == 1) return new wikidataClaim($a["claim"], $this);
+		if ($a["success"] == 1) return new Claim(array("data" => $a["claim"], "parentnode" => $this));
 		return null;
 	}
 	
@@ -92,7 +96,7 @@ class wikidataNode {
 	
 	public function setlabel($txt, $lang = "de", $comment = null) {
 		if ($txt == null)  {trigger_error("Text ist null.", E_USER_WARNING); return;}
-		wikidata::login();
+		\wikidata::login();
 		
 		$d1 = array("labels" => array( $lang => array("language" => $lang, "value" => $txt)));
 		
@@ -102,11 +106,14 @@ class wikidataNode {
 			"data" => json_encode($d1),
 			"baserevid" => $this->lastrevid(),
 			'bot' => 1,
-			"token" => wikidata::getEditToken());
+			"token" => \wikidata::getEditToken());
 		if ($comment != null) $w["summary"] = $comment;
 		//print_r($w);
-		$data = wikidata::httpRequestJSON("https://www.wikidata.org/w/api.php?action=wbeditentity&format=json&maxlag=".wikidata::$bot_maxlag, $w);
-		if (isset($data["error"])) { print_r($w); print_r($data); trigger_error("Fehler in WD-Anfrage", E_USER_ERROR); }
+		$data = \wikidata::httpRequestJSON("https://www.wikidata.org/w/api.php?action=wbeditentity&format=json&maxlag=".\wikidata::$bot_maxlag, $w);
+		if (isset($data["error"])) { 
+			if ($data["error"]["code"] == "not-recognized-language") { trigger_error("Unbekannter Sprachcode ".$lang, E_USER_WARNING); return null; }
+			print_r($w); print_r($data); trigger_error("Fehler in WD-Anfrage", E_USER_ERROR); 
+		}
 		$this->_refreshnode();
 		return $data;
 	}
@@ -114,7 +121,7 @@ class wikidataNode {
 	public function setdescription($txt, $lang = "de", $comment = null) {
 		if ($txt == null) { trigger_error("Text ist null.", E_USER_WARNING); return;}
 		if (strpos($txt, " Dick ") !== FALSE) { trigger_error("Die Node-Beschreibung enthält 'Dick' (Trolling Word)", E_USER_NOTICE); return; }
-		wikidata::login();
+		\wikidata::login();
 		
 		$d1 = array("descriptions" => array( $lang => array("language" => $lang, "value" => $txt)));
 		
@@ -124,11 +131,24 @@ class wikidataNode {
 			"data" => json_encode($d1),
 			"baserevid" => $this->lastrevid(),
 			'bot' => 1,
-			"token" => wikidata::getEditToken());
+			"token" => \wikidata::getEditToken());
 		if ($comment != null) $w["summary"] = $comment;
 		//print_r($w);
-		$data = wikidata::httpRequestJSON("https://www.wikidata.org/w/api.php?action=wbeditentity&format=json&maxlag=".wikidata::$bot_maxlag, $w);
-		if (isset($data["error"])) { print_r($w); print_r($data); trigger_error("Fehler in WD-Anfrage", E_USER_ERROR); }
+		$data = \wikidata::httpRequestJSON("https://www.wikidata.org/w/api.php?action=wbeditentity&format=json&maxlag=".\wikidata::$bot_maxlag, $w);
+		if (isset($data["error"])) { 
+			switch ($data["error"]["messages"][0]["name"]) {
+				case "wikibase-validator-label-with-description-conflict":
+					trigger_error("Fehler in WD-Anfrage: Die BEschreibung wird bereits in einem anderen Q verwendet.", E_USER_WARNING); 
+					break;
+				case "readonly":
+					echo('[PAUSE] Da Wikidata gerade readonly ist'.PHP_EOL);
+					sleep(120);
+					return $this->setdescription($txt, $lang, $comment);
+				default:
+				print_r($w); print_r($data); trigger_error("Fehler in WD-Anfrage", E_USER_ERROR); 
+			}
+			
+		}
 		$this->_refreshnode();
 		return $data;
 	}
@@ -152,7 +172,7 @@ class wikidataNode {
 		if ($this->_data != null) return;
 		if ($this->_live) $this->_refreshnode();
 		else {
-			$str = WebCache::get("http://www.wikidata.org/w/api.php?action=wbgetentities&format=json&ids=".$this->_id, 86400);
+			$str = \WebCache::get("http://www.wikidata.org/w/api.php?action=wbgetentities&format=json&ids=".$this->_id, 86400);
 			$json = json_decode($str,true);
 			$this->_data = $json["entities"][$this->_id];
 			
@@ -161,7 +181,7 @@ class wikidataNode {
 	}
 	
 	private function _refreshnode() {
-		$str = file_get_contents("http://www.wikidata.org/w/api.php?action=wbgetentities&format=json&maxlag=".wikidata::$bot_maxlag."&ids=".$this->_id);
+		$str = file_get_contents("http://www.wikidata.org/w/api.php?action=wbgetentities&format=json&maxlag=".\wikidata::$bot_maxlag."&ids=".$this->_id);
 		$json = json_decode($str,true);
 		$this->_data = $json["entities"][$this->_id];
 	}
